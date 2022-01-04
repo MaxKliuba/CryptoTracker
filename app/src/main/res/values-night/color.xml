@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="color_background">@color/black</color>
+    <color name="color_on_background">@color/white</color>
+    <color name="color_surface">@color/dark_gray</color>
+    <color name="color_on_surface">@color/white</color>
+</resources>
