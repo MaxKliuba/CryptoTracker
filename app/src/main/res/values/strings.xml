@@ -1,4 +1,9 @@
 <resources>
     <string name="app_name">CryptoTracker</string>
     <string name="btc_usd_title">BTC / USD</string>
+    <string name="time_label">TIME</string>
+    <string name="market_label">MARKET</string>
+    <string name="price_label">PRICE</string>
+    <string name="amount_label">AMOUNT</string>
+    <string name="arrow_up_content_description">Arrow up</string>
 </resources>

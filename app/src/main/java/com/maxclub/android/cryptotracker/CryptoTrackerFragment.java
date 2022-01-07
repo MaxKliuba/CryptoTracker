@@ -12,6 +12,8 @@ import androidx.annotation.Nullable;
 import androidx.appcompat.app.ActionBar;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.fragment.app.Fragment;
+import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
 
 import com.github.mikephil.charting.charts.LineChart;
 import com.github.mikephil.charting.components.XAxis;
@@ -47,6 +49,7 @@ public class CryptoTrackerFragment extends Fragment {
 
     private ActionBar mActionBar;
     private LineChart mLineChart;
+    private RecyclerView mTradeRecyclerView;
 
     public static CryptoTrackerFragment newInstance() {
         return new CryptoTrackerFragment();
@@ -76,6 +79,10 @@ public class CryptoTrackerFragment extends Fragment {
         mActionBar.setTitle(getString(R.string.btc_usd_title));
 
         initChart(view);
+
+        mTradeRecyclerView = (RecyclerView) view.findViewById(R.id.trade_recycler_view);
+        mTradeRecyclerView.setLayoutManager(new LinearLayoutManager(getActivity(), LinearLayoutManager.VERTICAL, false));
+        mTradeRecyclerView.setAdapter(new TradeAdapter(getActivity()));
 
         return view;
     }
@@ -233,9 +240,12 @@ public class CryptoTrackerFragment extends Fragment {
                 case Trade.TYPE:
                     Trade trade = gson.fromJson(message, Trade.class);
 
-//                    getActivity().runOnUiThread(() ->
-//                            Toast.makeText(getActivity(), trade.toString(), Toast.LENGTH_SHORT).show()
-//                    );
+                    getActivity().runOnUiThread(() -> {
+                                ((TradeAdapter) mTradeRecyclerView.getAdapter()).getItems().add(0, trade);
+                                mTradeRecyclerView.getAdapter().notifyDataSetChanged();
+                                //Toast.makeText(getActivity(), trade.toString(), Toast.LENGTH_SHORT).show()
+                            }
+                    );
                     break;
             }
         }
