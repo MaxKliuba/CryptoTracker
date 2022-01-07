@@ -1,10 +1,11 @@
 package com.maxclub.android.cryptotracker;
 
-import android.graphics.Color;
 import android.os.Bundle;
+import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -21,19 +22,43 @@ import com.github.mikephil.charting.data.LineDataSet;
 import com.github.mikephil.charting.formatter.IFillFormatter;
 import com.github.mikephil.charting.interfaces.dataprovider.LineDataProvider;
 import com.github.mikephil.charting.interfaces.datasets.ILineDataSet;
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 
 import org.jetbrains.annotations.NotNull;
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
 
 import java.util.ArrayList;
 import java.util.Locale;
 
+import io.reactivex.Observable;
+import io.reactivex.android.schedulers.AndroidSchedulers;
+import io.reactivex.functions.Consumer;
+import io.reactivex.schedulers.Schedulers;
+import okhttp3.Response;
+import okhttp3.WebSocket;
+import okhttp3.WebSocketListener;
+
 public class CryptoTrackerFragment extends Fragment {
+
+    private static final String TAG = "WebSocket";
 
     private ActionBar mActionBar;
     private LineChart mLineChart;
 
     public static CryptoTrackerFragment newInstance() {
         return new CryptoTrackerFragment();
+    }
+
+    @Override
+    public void onCreate(@Nullable @org.jetbrains.annotations.Nullable Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+
+        setRetainInstance(true);
+
+        new WebSocketManager(new EchoWebSocketListener());
     }
 
     @Nullable
@@ -49,8 +74,13 @@ public class CryptoTrackerFragment extends Fragment {
         mActionBar.setDisplayHomeAsUpEnabled(true);
         mActionBar.setHomeAsUpIndicator(R.drawable.ic_bitcoin);
         mActionBar.setTitle(getString(R.string.btc_usd_title));
-        mActionBar.setSubtitle(String.format(Locale.getDefault(), "%.2f $", 47128.145));
 
+        initChart(view);
+
+        return view;
+    }
+
+    private void initChart(View view) {
         mLineChart = view.findViewById(R.id.chart);
         mLineChart.setViewPortOffsets(0, 0, 0, 0);
         mLineChart.setBackgroundColor(getResources().getColor(R.color.color_surface));
@@ -104,8 +134,6 @@ public class CryptoTrackerFragment extends Fragment {
 
         // don't forget to refresh the drawing
         mLineChart.invalidate();
-
-        return view;
     }
 
     private void setData(int count, float range) {
@@ -159,4 +187,68 @@ public class CryptoTrackerFragment extends Fragment {
         }
     }
 
+    private final class EchoWebSocketListener extends WebSocketListener {
+        @Override
+        public void onOpen(WebSocket webSocket, Response response) {
+            Log.i(TAG, "WebSocket.onOpen()");
+
+            JSONArray jsonArray = new JSONArray();
+            jsonArray.put("5~CCCAGG~BTC~USD");
+            jsonArray.put("0~Coinbase~BTC~USD");
+            jsonArray.put("0~Cexio~BTC~USD");
+
+            JSONObject jsonObject = new JSONObject();
+            try {
+                jsonObject.put("action", "SubAdd");
+                jsonObject.put("subs", jsonArray);
+            } catch (JSONException e) {
+                e.printStackTrace();
+            }
+
+            webSocket.send(jsonObject.toString());
+        }
+
+        @Override
+        public void onMessage(WebSocket webSocket, String message) {
+            Log.i(TAG, "WebSocket.onMessage() -> " + message);
+
+            Gson gson = (new GsonBuilder()).create();
+            CryptoCompareResponse cryptoCompareResponse = gson.fromJson(message, CryptoCompareResponse.class);
+
+            switch (cryptoCompareResponse.type) {
+                case AggregateIndex.TYPE:
+                    AggregateIndex aggregateIndex = gson.fromJson(message, AggregateIndex.class);
+
+                    Observable.just(aggregateIndex)
+                            .subscribeOn(Schedulers.io())
+                            .observeOn(AndroidSchedulers.mainThread())
+                            .subscribe(new Consumer<AggregateIndex>() {
+                                @Override
+                                public void accept(AggregateIndex aggregateIndex) throws Exception {
+                                    mActionBar.setSubtitle(String.format(Locale.getDefault(), "%.2f $", aggregateIndex.price));
+                                }
+                            });
+
+                    break;
+                case Trade.TYPE:
+                    Trade trade = gson.fromJson(message, Trade.class);
+
+//                    getActivity().runOnUiThread(() ->
+//                            Toast.makeText(getActivity(), trade.toString(), Toast.LENGTH_SHORT).show()
+//                    );
+                    break;
+            }
+        }
+
+        @Override
+        public void onClosing(WebSocket webSocket, int code, String reason) {
+            Log.i(TAG, "WebSocket.onClosing() -> " + reason);
+            webSocket.close(code, reason);
+        }
+
+        @Override
+        public void onFailure(WebSocket webSocket, Throwable throwable, Response response) {
+            Log.i(TAG, "WebSocket.onFailure() -> " + throwable.getMessage());
+        }
+    }
 }
