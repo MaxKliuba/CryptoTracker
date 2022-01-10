@@ -1,9 +1,14 @@
 package com.maxclub.android.cryptotracker;
 
+import android.app.Activity;
+import android.content.Intent;
 import android.os.Bundle;
 import android.os.Parcelable;
 import android.util.Log;
 import android.view.LayoutInflater;
+import android.view.Menu;
+import android.view.MenuInflater;
+import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
 
@@ -12,6 +17,7 @@ import androidx.annotation.Nullable;
 import androidx.appcompat.app.ActionBar;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.fragment.app.Fragment;
+import androidx.fragment.app.FragmentManager;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
@@ -31,10 +37,8 @@ import com.google.gson.GsonBuilder;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
-import java.util.Date;
 import java.util.List;
 import java.util.Locale;
-import java.util.concurrent.TimeUnit;
 
 import io.reactivex.Observer;
 import io.reactivex.android.schedulers.AndroidSchedulers;
@@ -47,6 +51,10 @@ public class CryptoTrackerFragment extends Fragment {
 
     private static final String KEY_TRADES = "CryptoTrackerFragment.mTrades";
     private static final String KEY_AGGREGATE_INDICES = "CryptoTrackerFragment.mAggregateIndices";
+    private static final String KEY_TIME_INTERVAL = "CryptoTrackerFragment.mTimeInterval";
+
+    private static final int REQUEST_EDIT_TIME_INTERVAL = 0;
+    public static final String DIALOG_EDIT_TIME_INTERVAL = "CryptoTrackerFragment.DialogEditTimeInterval";
 
     private ActionBar mActionBar;
     private LineChart mLineChart;
@@ -55,6 +63,7 @@ public class CryptoTrackerFragment extends Fragment {
     private List<AggregateIndex> mAggregateIndices;
     private List<Trade> mTrades;
     private CryptoCompareClient mCryptoCompareClient;
+    private int mTimeInterval;
 
     public static CryptoTrackerFragment newInstance() {
         return new CryptoTrackerFragment();
@@ -67,10 +76,14 @@ public class CryptoTrackerFragment extends Fragment {
         if (savedInstanceState != null) {
             mAggregateIndices = savedInstanceState.getParcelableArrayList(KEY_AGGREGATE_INDICES);
             mTrades = savedInstanceState.getParcelableArrayList(KEY_TRADES);
+            mTimeInterval = savedInstanceState.getInt(KEY_TIME_INTERVAL, 1);
         } else {
             mAggregateIndices = new ArrayList<>();
             mTrades = new ArrayList<>();
+            mTimeInterval = 1;
         }
+
+        setHasOptionsMenu(true);
     }
 
     @Nullable
@@ -159,6 +172,43 @@ public class CryptoTrackerFragment extends Fragment {
 
         outState.putParcelableArrayList(KEY_AGGREGATE_INDICES, (ArrayList<? extends Parcelable>) mAggregateIndices);
         outState.putParcelableArrayList(KEY_TRADES, (ArrayList<? extends Parcelable>) mTrades);
+        outState.putInt(KEY_TIME_INTERVAL, mTimeInterval);
+    }
+
+    @Override
+    public void onCreateOptionsMenu(@NonNull @NotNull Menu menu, @NonNull @NotNull MenuInflater inflater) {
+        super.onCreateOptionsMenu(menu, inflater);
+
+        inflater.inflate(R.menu.crypto_tracker_fragment, menu);
+    }
+
+    @Override
+    public boolean onOptionsItemSelected(@NonNull @NotNull MenuItem item) {
+        switch (item.getItemId()) {
+            case R.id.action_edit:
+                FragmentManager manager = getActivity().getSupportFragmentManager();
+                EditTimeIntervalDialogFragment dialog = EditTimeIntervalDialogFragment.newInstance(mTimeInterval);
+                dialog.setTargetFragment(CryptoTrackerFragment.this, REQUEST_EDIT_TIME_INTERVAL);
+                dialog.show(manager, DIALOG_EDIT_TIME_INTERVAL);
+                return true;
+            default:
+                return super.onOptionsItemSelected(item);
+        }
+    }
+
+    @Override
+    public void onActivityResult(int requestCode, int resultCode, @Nullable @org.jetbrains.annotations.Nullable Intent data) {
+
+        switch (requestCode) {
+            case REQUEST_EDIT_TIME_INTERVAL:
+                if (resultCode == Activity.RESULT_OK) {
+                    mTimeInterval = data.getIntExtra(EditTimeIntervalDialogFragment.EXTRA_TIME_INTERVAL, mTimeInterval);
+                }
+                break;
+            default:
+                super.onActivityResult(requestCode, resultCode, data);
+                break;
+        }
     }
 
     private void initChart(View view) {

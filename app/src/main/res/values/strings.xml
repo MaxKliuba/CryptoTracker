@@ -6,4 +6,7 @@
     <string name="price_label">PRICE</string>
     <string name="amount_label">AMOUNT</string>
     <string name="arrow_up_content_description">Arrow up</string>
+    <string name="edit_time_interval_label">Edit time interval</string>
+    <string name="avg_time_interval_title">Average time interval</string>
+    <string name="time_interval_hint">Enter time interval</string>
 </resources>
