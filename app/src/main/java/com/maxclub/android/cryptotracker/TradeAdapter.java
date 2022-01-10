@@ -83,7 +83,7 @@ public class TradeAdapter extends RecyclerView.Adapter<TradeAdapter.TradeHolder>
         }
 
         public void bind(Trade trade) {
-            mTimeTextView.setText(DateTimeHelper.getFormattedTime(mContext, new Date((trade.timestamp + 2) * 1000L)));
+            mTimeTextView.setText(DateTimeHelper.getFormattedTime(mContext, new Date((trade.timestamp + 2 * 3600) * 1000L)));
             mMarketTextView.setText(trade.market);
             mPriceTextView.setText(String.format(Locale.getDefault(), "%.2f", trade.price));
             mAmountTextView.setText(String.format(Locale.getDefault(), "%.6f", trade.quantity));
