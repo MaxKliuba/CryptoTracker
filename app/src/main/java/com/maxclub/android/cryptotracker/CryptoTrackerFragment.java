@@ -1,5 +1,6 @@
 package com.maxclub.android.cryptotracker;
 
+import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.content.Intent;
 import android.os.Bundle;
@@ -38,6 +39,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
+import io.reactivex.Observable;
 import io.reactivex.Observer;
 import io.reactivex.android.schedulers.AndroidSchedulers;
 import io.reactivex.disposables.Disposable;
@@ -45,7 +47,7 @@ import io.reactivex.schedulers.Schedulers;
 
 public class CryptoTrackerFragment extends Fragment {
 
-    private static final String TAG = "WebSocket";
+    private static final String TAG = "ReactiveX";
 
     private static final String KEY_TRADES = "CryptoTrackerFragment.mTrades";
     private static final String KEY_AGGREGATE_INDICES = "CryptoTrackerFragment.mAggregateIndices";
@@ -108,18 +110,10 @@ public class CryptoTrackerFragment extends Fragment {
         mSwipeRefreshLayout.setOnRefreshListener(new SwipeRefreshLayout.OnRefreshListener() {
             @Override
             public void onRefresh() {
-                reconnectCryptoCompareClient();
-
                 mAggregateIndices.clear();
-                mActionBar.setSubtitle(null);
-                mLineChart.clear();
-                initLineData();
-
                 mTrades.clear();
-                mTradeAdapter.setItems(mTrades);
-                mTradeAdapter.notifyDataSetChanged();
-
                 mSwipeRefreshLayout.setRefreshing(false);
+                getActivity().recreate();
             }
         });
 
@@ -166,6 +160,7 @@ public class CryptoTrackerFragment extends Fragment {
         inflater.inflate(R.menu.crypto_tracker_fragment, menu);
     }
 
+    @SuppressLint("NonConstantResourceId")
     @Override
     public boolean onOptionsItemSelected(@NonNull @NotNull MenuItem item) {
         switch (item.getItemId()) {
@@ -275,10 +270,6 @@ public class CryptoTrackerFragment extends Fragment {
 
         mLineChart.invalidate();
 
-        initLineData();
-    }
-
-    private void initLineData() {
         LineData lineData = mLineChart.getData();
 
         if (lineData == null) {
@@ -294,46 +285,6 @@ public class CryptoTrackerFragment extends Fragment {
         if (mAggregateIndices.size() > 0) {
             setEntries(mAggregateIndices);
         }
-    }
-
-    private void setEntries(List<AggregateIndex> aggregateIndices) {
-        for (int i = 0; i < aggregateIndices.size(); i++) {
-            mPriceLineDataSet.addEntry(new Entry(mPriceLineDataSet.getEntryCount(), aggregateIndices.get(i).price));
-        }
-
-        mLineChart.getData().notifyDataChanged();
-        mLineChart.notifyDataSetChanged();
-
-        mLineChart.setVisibleXRangeMaximum(6);
-        mLineChart.moveViewTo(mLineChart.getData().getEntryCount() - 7, 50f, YAxis.AxisDependency.LEFT);
-
-    }
-
-    private void addEntry(AggregateIndex aggregateIndex) {
-        mPriceLineDataSet.addEntry(new Entry(mPriceLineDataSet.getEntryCount(), aggregateIndex.price));
-        if (mTimeInterval > 0 && mPriceLineDataSet.getEntryCount() % mTimeInterval == 0) {
-            int startIndex = Math.max(0, mPriceLineDataSet.getEntryCount() - mTimeInterval - 1);
-            int endIndex = mPriceLineDataSet.getEntryCount() - 1;
-            if (mAvgPriceLineDataSet.getEntryCount() != 0) {
-                startIndex = (int) mAvgPriceLineDataSet.getEntryForIndex(mAvgPriceLineDataSet.getEntryCount() - 1).getX();
-            }
-
-            float sum = 0;
-            for (int i = startIndex; i <= endIndex; i++) {
-                sum += mPriceLineDataSet.getEntryForIndex(i).getY();
-            }
-
-            float avgPrice = sum / (endIndex - startIndex + 1);
-
-            mAvgPriceLineDataSet.addEntry(new Entry(startIndex, avgPrice));
-            mAvgPriceLineDataSet.addEntry(new Entry(endIndex, avgPrice));
-        }
-        mLineChart.getData().notifyDataChanged();
-        mLineChart.notifyDataSetChanged();
-
-        mLineChart.setVisibleXRangeMaximum(6);
-        mLineChart.moveViewTo(mLineChart.getData().getEntryCount() - 7, 50f, YAxis.AxisDependency.LEFT);
-
     }
 
     private LineDataSet createPriceLineDataSet() {
@@ -366,5 +317,45 @@ public class CryptoTrackerFragment extends Fragment {
         set.setDrawValues(false);
 
         return set;
+    }
+
+    @SuppressLint("CheckResult")
+    private void setEntries(List<AggregateIndex> aggregateIndices) {
+        Observable.fromIterable(aggregateIndices)
+                .subscribe(aggregateIndex ->
+                        mPriceLineDataSet.addEntry(new Entry(mPriceLineDataSet.getEntryCount(), aggregateIndex.price)));
+
+        mLineChart.getData().notifyDataChanged();
+        mLineChart.notifyDataSetChanged();
+
+        mLineChart.setVisibleXRangeMaximum(6);
+        mLineChart.moveViewTo(mLineChart.getData().getEntryCount() - 7, 50f, YAxis.AxisDependency.LEFT);
+
+    }
+
+    @SuppressLint("CheckResult")
+    private void addEntry(AggregateIndex aggregateIndex) {
+        mPriceLineDataSet.addEntry(new Entry(mPriceLineDataSet.getEntryCount(), aggregateIndex.price));
+        if (mTimeInterval > 0 && mPriceLineDataSet.getEntryCount() % mTimeInterval == 0) {
+            final int startIndex = mAvgPriceLineDataSet.getEntryCount() == 0
+                    ? Math.max(0, mPriceLineDataSet.getEntryCount() - mTimeInterval - 1)
+                    : (int) mAvgPriceLineDataSet.getEntryForIndex(mAvgPriceLineDataSet.getEntryCount() - 1).getX();
+            int endIndex = mPriceLineDataSet.getEntryCount() - 1;
+            int count = endIndex - startIndex + 1;
+
+            Observable.range(startIndex, count)
+                    .map(index -> mPriceLineDataSet.getEntryForIndex(index).getY())
+                    .reduce((x, y) -> x + y)
+                    .map(sum -> sum / count)
+                    .subscribe(avgPrice -> {
+                        mAvgPriceLineDataSet.addEntry(new Entry(startIndex, avgPrice));
+                        mAvgPriceLineDataSet.addEntry(new Entry(endIndex, avgPrice));
+                    });
+        }
+        mLineChart.getData().notifyDataChanged();
+        mLineChart.notifyDataSetChanged();
+
+        mLineChart.setVisibleXRangeMaximum(6);
+        mLineChart.moveViewTo(mLineChart.getData().getEntryCount() - 7, 50f, YAxis.AxisDependency.LEFT);
     }
 }
