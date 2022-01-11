@@ -65,7 +65,7 @@ public class EditTimeIntervalDialogFragment extends DialogFragment {
                     if (charSequence.length() != 0) {
                         int number = Integer.parseInt(charSequence.toString());
 
-                        if (number < 1 || number > 3600) {
+                        if (number < 0 || number > 3600) {
                             throw new NumberFormatException();
                         }
                     }
@@ -100,7 +100,7 @@ public class EditTimeIntervalDialogFragment extends DialogFragment {
                         try {
                             int number = Integer.parseInt(inputEditText.getText().toString());
 
-                            if (number < 1 || number > 3600) {
+                            if (number < 0 || number > 3600) {
                                 throw new NumberFormatException();
                             }
 

@@ -11,6 +11,7 @@ import android.view.MenuInflater;
 import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -20,6 +21,7 @@ import androidx.fragment.app.Fragment;
 import androidx.fragment.app.FragmentManager;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
+import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 
 import com.github.mikephil.charting.charts.LineChart;
 import com.github.mikephil.charting.components.XAxis;
@@ -27,10 +29,6 @@ import com.github.mikephil.charting.components.YAxis;
 import com.github.mikephil.charting.data.Entry;
 import com.github.mikephil.charting.data.LineData;
 import com.github.mikephil.charting.data.LineDataSet;
-import com.github.mikephil.charting.formatter.IFillFormatter;
-import com.github.mikephil.charting.formatter.ValueFormatter;
-import com.github.mikephil.charting.interfaces.dataprovider.LineDataProvider;
-import com.github.mikephil.charting.interfaces.datasets.ILineDataSet;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 
@@ -57,12 +55,15 @@ public class CryptoTrackerFragment extends Fragment {
     public static final String DIALOG_EDIT_TIME_INTERVAL = "CryptoTrackerFragment.DialogEditTimeInterval";
 
     private ActionBar mActionBar;
+    private SwipeRefreshLayout mSwipeRefreshLayout;
+    private CryptoCompareClient mCryptoCompareClient;
     private LineChart mLineChart;
+    private LineDataSet mPriceLineDataSet;
+    private LineDataSet mAvgPriceLineDataSet;
     private RecyclerView mTradeRecyclerView;
     private TradeAdapter mTradeAdapter;
     private List<AggregateIndex> mAggregateIndices;
     private List<Trade> mTrades;
-    private CryptoCompareClient mCryptoCompareClient;
     private int mTimeInterval;
 
     public static CryptoTrackerFragment newInstance() {
@@ -76,11 +77,12 @@ public class CryptoTrackerFragment extends Fragment {
         if (savedInstanceState != null) {
             mAggregateIndices = savedInstanceState.getParcelableArrayList(KEY_AGGREGATE_INDICES);
             mTrades = savedInstanceState.getParcelableArrayList(KEY_TRADES);
-            mTimeInterval = savedInstanceState.getInt(KEY_TIME_INTERVAL, 1);
+            mTimeInterval = savedInstanceState.getInt(KEY_TIME_INTERVAL, 0);
+            mLineChart = savedInstanceState.getParcelable(KEY_TRADES);
         } else {
             mAggregateIndices = new ArrayList<>();
             mTrades = new ArrayList<>();
-            mTimeInterval = 1;
+            mTimeInterval = 0;
         }
 
         setHasOptionsMenu(true);
@@ -100,7 +102,29 @@ public class CryptoTrackerFragment extends Fragment {
         mActionBar.setHomeAsUpIndicator(R.drawable.ic_bitcoin);
         mActionBar.setTitle(getString(R.string.btc_usd_title));
 
-        initChart(view);
+        mSwipeRefreshLayout = (SwipeRefreshLayout) view.findViewById(R.id.swipe_refresh_layout);
+        mSwipeRefreshLayout.setColorSchemeResources(R.color.swipe_refresh_layout_color);
+        mSwipeRefreshLayout.setProgressBackgroundColorSchemeResource(R.color.swipe_refresh_layout_background_color);
+        mSwipeRefreshLayout.setOnRefreshListener(new SwipeRefreshLayout.OnRefreshListener() {
+            @Override
+            public void onRefresh() {
+                reconnectCryptoCompareClient();
+
+                mAggregateIndices.clear();
+                mActionBar.setSubtitle(null);
+                mLineChart.clear();
+                initLineData();
+
+                mTrades.clear();
+                mTradeAdapter.setItems(mTrades);
+                mTradeAdapter.notifyDataSetChanged();
+
+                mSwipeRefreshLayout.setRefreshing(false);
+            }
+        });
+
+        mLineChart = (LineChart) view.findViewById(R.id.chart);
+        initChart();
 
         mTradeRecyclerView = (RecyclerView) view.findViewById(R.id.trade_recycler_view);
         mTradeRecyclerView.setLayoutManager(new LinearLayoutManager(getActivity(), LinearLayoutManager.VERTICAL, false));
@@ -108,60 +132,20 @@ public class CryptoTrackerFragment extends Fragment {
         mTradeRecyclerView.setAdapter(mTradeAdapter);
 
         mCryptoCompareClient = new CryptoCompareClient();
-        mCryptoCompareClient.connect()
-                .subscribeOn(Schedulers.io())
-                .observeOn(AndroidSchedulers.mainThread())
-                .subscribe(new Observer<String>() {
-                    @Override
-                    public void onSubscribe(@NotNull Disposable disposable) {
-                        Log.i(TAG, "onSubscribe()");
-                    }
-
-                    @Override
-                    public void onNext(@NotNull String s) {
-                        Log.i(TAG, "onNext() -> " + s);
-
-                        Gson gson = (new GsonBuilder()).create();
-                        CryptoCompareResponse cryptoCompareResponse = gson.fromJson(s, CryptoCompareResponse.class);
-
-                        switch (cryptoCompareResponse.type) {
-                            case AggregateIndex.TYPE:
-                                AggregateIndex aggregateIndex = gson.fromJson(s, AggregateIndex.class);
-
-                                if (aggregateIndex.price > 0) {
-                                    mAggregateIndices.add(aggregateIndex);
-                                    setData();
-
-                                    mActionBar.setSubtitle(String.format(Locale.getDefault(), "%.2f $", aggregateIndex.price));
-                                }
-                                break;
-                            case Trade.TYPE:
-                                Trade trade = gson.fromJson(s, Trade.class);
-
-                                mTrades.add(0, trade);
-                                mTradeAdapter.setItems(mTrades);
-                                mTradeAdapter.notifyDataSetChanged();
-                                break;
-                        }
-                    }
-
-                    @Override
-                    public void onError(@NotNull Throwable throwable) {
-                        Log.e(TAG, "onError()", throwable);
-                    }
-
-                    @Override
-                    public void onComplete() {
-                        Log.i(TAG, "onComplete()");
-                    }
-                });
 
         return view;
     }
 
     @Override
-    public void onDestroy() {
-        super.onDestroy();
+    public void onStart() {
+        super.onStart();
+
+        reconnectCryptoCompareClient();
+    }
+
+    @Override
+    public void onStop() {
+        super.onStop();
 
         mCryptoCompareClient.disconnect();
     }
@@ -211,101 +195,176 @@ public class CryptoTrackerFragment extends Fragment {
         }
     }
 
-    private void initChart(View view) {
-        mLineChart = view.findViewById(R.id.chart);
-        mLineChart.setViewPortOffsets(0, 0, 0, 0);
+    public void reconnectCryptoCompareClient() {
+        mCryptoCompareClient.disconnect();
+
+        mCryptoCompareClient.connect()
+                .subscribeOn(Schedulers.io())
+                .observeOn(AndroidSchedulers.mainThread())
+                .subscribe(new Observer<String>() {
+                    @Override
+                    public void onSubscribe(@NotNull Disposable disposable) {
+                        Log.i(TAG, "onSubscribe()");
+                    }
+
+                    @Override
+                    public void onNext(@NotNull String s) {
+                        Log.i(TAG, "onNext() -> " + s);
+
+                        Gson gson = (new GsonBuilder()).create();
+                        CryptoCompareResponse cryptoCompareResponse = gson.fromJson(s, CryptoCompareResponse.class);
+
+                        switch (cryptoCompareResponse.type) {
+                            case AggregateIndex.TYPE:
+                                AggregateIndex aggregateIndex = gson.fromJson(s, AggregateIndex.class);
+
+                                if (aggregateIndex.price > 0) {
+                                    mAggregateIndices.add(aggregateIndex);
+                                    addEntry(aggregateIndex);
+
+                                    mActionBar.setSubtitle(String.format(Locale.getDefault(), "%.2f $", aggregateIndex.price));
+                                }
+                                break;
+                            case Trade.TYPE:
+                                Trade trade = gson.fromJson(s, Trade.class);
+
+                                mTrades.add(0, trade);
+                                mTradeAdapter.setItems(mTrades);
+                                mTradeAdapter.notifyDataSetChanged();
+                                break;
+                        }
+                    }
+
+                    @Override
+                    public void onError(@NotNull Throwable throwable) {
+                        Log.e(TAG, "onError()", throwable);
+
+                        Toast.makeText(getActivity(), throwable.getMessage(), Toast.LENGTH_SHORT).show();
+                    }
+
+                    @Override
+                    public void onComplete() {
+                        Log.i(TAG, "onComplete()");
+                    }
+                });
+    }
+
+    private void initChart() {
         mLineChart.setBackgroundColor(getResources().getColor(R.color.color_surface));
         mLineChart.setNoDataTextColor(getResources().getColor(R.color.color_on_surface));
+        mLineChart.setDrawGridBackground(false);
         mLineChart.getDescription().setEnabled(false);
         mLineChart.setTouchEnabled(true);
         mLineChart.setDragEnabled(true);
         mLineChart.setScaleEnabled(true);
         mLineChart.setPinchZoom(true);
-        mLineChart.setDrawGridBackground(false);
 
         XAxis xAxis = mLineChart.getXAxis();
-        xAxis.setEnabled(false);
-        xAxis.setPosition(XAxis.XAxisPosition.BOTTOM_INSIDE);
-        xAxis.setLabelCount(5, false);
-        xAxis.setTextSize(16.0f);
+        xAxis.setEnabled(true);
         xAxis.setTextColor(getResources().getColor(R.color.color_on_surface));
         xAxis.setAxisLineColor(getResources().getColor(R.color.color_surface));
-        xAxis.setDrawAxisLine(false);
-        xAxis.setDrawGridLines(false);
-        xAxis.setCenterAxisLabels(true);
+        xAxis.setDrawLabels(false);
         xAxis.setGranularity(1f);
-        xAxis.setValueFormatter(new ValueFormatter() {
-            @Override
-            public String getFormattedValue(float value) {
-                return value + ""; //DateTimeHelper.getFormattedTime(getActivity(), new Date((mAggregateIndices.get((int) value).lastUpdate + 2 * 3600) * 1000L));
-            }
-        });
 
         YAxis yAxis = mLineChart.getAxisLeft();
-        yAxis.setPosition(YAxis.YAxisLabelPosition.INSIDE_CHART);
-        yAxis.setLabelCount(5, false);
-        yAxis.setTextSize(16.0f);
         yAxis.setTextColor(getResources().getColor(R.color.color_on_surface));
         yAxis.setAxisLineColor(getResources().getColor(R.color.color_surface));
-        yAxis.setDrawGridLines(false);
-        yAxis.setDrawAxisLine(false);
 
         mLineChart.getAxisRight().setEnabled(false);
         mLineChart.getLegend().setEnabled(false);
-        mLineChart.animateXY(1000, 1000);
 
-        setData();
+        mLineChart.invalidate();
+
+        initLineData();
     }
 
-    private void setData() {
+    private void initLineData() {
+        LineData lineData = mLineChart.getData();
 
-        ArrayList<Entry> values = new ArrayList<>();
-
-        for (int i = Math.max(0, mAggregateIndices.size() - 10); i < mAggregateIndices.size(); i++) {
-            values.add(new Entry(i, mAggregateIndices.get(i).price));
+        if (lineData == null) {
+            lineData = new LineData();
+            mLineChart.setData(lineData);
         }
 
-        LineDataSet set1;
+        mPriceLineDataSet = createPriceLineDataSet();
+        lineData.addDataSet(mPriceLineDataSet);
+        mAvgPriceLineDataSet = createAvgPriceLineDataSet();
+        lineData.addDataSet(mAvgPriceLineDataSet);
 
-        if (mLineChart.getData() != null && mLineChart.getData().getDataSetCount() > 0) {
-            set1 = (LineDataSet) mLineChart.getData().getDataSetByIndex(0);
-            set1.setValues(values);
-            mLineChart.getData().notifyDataChanged();
-            mLineChart.notifyDataSetChanged();
+        if (mAggregateIndices.size() > 0) {
+            setEntries(mAggregateIndices);
+        }
+    }
+
+    private void setEntries(List<AggregateIndex> aggregateIndices) {
+        for (int i = 0; i < aggregateIndices.size(); i++) {
+            mPriceLineDataSet.addEntry(new Entry(mPriceLineDataSet.getEntryCount(), aggregateIndices.get(i).price));
         }
 
-        // create a dataset and give it a type
-        set1 = new LineDataSet(values, "Price");
+        mLineChart.getData().notifyDataChanged();
+        mLineChart.notifyDataSetChanged();
 
-        set1.setMode(LineDataSet.Mode.CUBIC_BEZIER);
-        set1.setCubicIntensity(0.1f);
-        set1.setDrawFilled(true);
-        set1.setDrawCircles(false);
-        set1.setLineWidth(1.8f);
-        set1.setCircleRadius(4f);
-        set1.setCircleColor(getResources().getColor(R.color.color_on_surface));
-        set1.setHighLightColor(getResources().getColor(R.color.color_on_surface));
-        set1.setColor(getResources().getColor(R.color.color_primary));
-        set1.setFillColor(getResources().getColor(R.color.color_primary));
-        set1.setFillAlpha(50);
-        set1.setDrawHorizontalHighlightIndicator(true);
-        set1.setFillFormatter(new IFillFormatter() {
-            @Override
-            public float getFillLinePosition(ILineDataSet dataSet, LineDataProvider dataProvider) {
-                return mLineChart.getAxisLeft().getAxisMinimum();
+        mLineChart.setVisibleXRangeMaximum(6);
+        mLineChart.moveViewTo(mLineChart.getData().getEntryCount() - 7, 50f, YAxis.AxisDependency.LEFT);
+
+    }
+
+    private void addEntry(AggregateIndex aggregateIndex) {
+        mPriceLineDataSet.addEntry(new Entry(mPriceLineDataSet.getEntryCount(), aggregateIndex.price));
+        if (mTimeInterval > 0 && mPriceLineDataSet.getEntryCount() % mTimeInterval == 0) {
+            int startIndex = Math.max(0, mPriceLineDataSet.getEntryCount() - mTimeInterval - 1);
+            int endIndex = mPriceLineDataSet.getEntryCount() - 1;
+            if (mAvgPriceLineDataSet.getEntryCount() != 0) {
+                startIndex = (int) mAvgPriceLineDataSet.getEntryForIndex(mAvgPriceLineDataSet.getEntryCount() - 1).getX();
             }
-        });
 
-        // create a data object with the data sets
-        LineData data = new LineData(set1);
-        //data.setValueTypeface(tfLight);
-        data.setValueTextColor(getResources().getColor(R.color.color_on_surface));
-        data.setValueTextSize(9f);
-        data.setDrawValues(true);
+            float sum = 0;
+            for (int i = startIndex; i <= endIndex; i++) {
+                sum += mPriceLineDataSet.getEntryForIndex(i).getY();
+            }
 
-        // set data
+            float avgPrice = sum / (endIndex - startIndex + 1);
 
-        mLineChart.setData(data);
-        mLineChart.invalidate();
+            mAvgPriceLineDataSet.addEntry(new Entry(startIndex, avgPrice));
+            mAvgPriceLineDataSet.addEntry(new Entry(endIndex, avgPrice));
+        }
+        mLineChart.getData().notifyDataChanged();
+        mLineChart.notifyDataSetChanged();
+
+        mLineChart.setVisibleXRangeMaximum(6);
+        mLineChart.moveViewTo(mLineChart.getData().getEntryCount() - 7, 50f, YAxis.AxisDependency.LEFT);
+
+    }
+
+    private LineDataSet createPriceLineDataSet() {
+        LineDataSet set = new LineDataSet(null, "Price");
+        set.setMode(LineDataSet.Mode.CUBIC_BEZIER);
+        set.setCubicIntensity(0.01f);
+        set.setDrawFilled(true);
+        set.setLineWidth(2.5f);
+        set.setCircleRadius(4.5f);
+        set.setColor(getResources().getColor(R.color.color_primary));
+        set.setCircleColor(getResources().getColor(R.color.color_primary));
+        set.setCircleHoleColor(getResources().getColor(R.color.color_surface));
+        set.setHighLightColor(getResources().getColor(R.color.color_on_surface));
+        set.setFillColor(getResources().getColor(R.color.color_primary));
+        set.setFillAlpha(50);
+        set.setAxisDependency(YAxis.AxisDependency.LEFT);
+        set.setValueTextColor(getResources().getColor(R.color.color_on_surface));
+        set.setValueTextSize(8f);
+
+        return set;
+    }
+
+    private LineDataSet createAvgPriceLineDataSet() {
+        LineDataSet set = new LineDataSet(null, "Avg Price");
+        set.setMode(LineDataSet.Mode.LINEAR);
+        set.setLineWidth(2.0f);
+        set.setDrawCircles(false);
+        set.setColor(getResources().getColor(R.color.color_on_surface));
+        set.setAxisDependency(YAxis.AxisDependency.LEFT);
+        set.setDrawValues(false);
+
+        return set;
     }
 }

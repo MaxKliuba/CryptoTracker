@@ -17,4 +17,6 @@
     <color name="color_on_background">@color/black</color>
     <color name="color_surface">@color/white</color>
     <color name="color_on_surface">@color/black</color>
+    <color name="swipe_refresh_layout_color">@color/color_primary</color>
+    <color name="swipe_refresh_layout_background_color">@color/white</color>
 </resources>

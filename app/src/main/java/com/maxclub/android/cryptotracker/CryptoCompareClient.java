@@ -76,6 +76,7 @@ public class CryptoCompareClient {
                     Log.e(TAG, "WebSocket.onFailure()", t);
 
                     subscriber.onError(t);
+                    subscriber.onComplete();
                 }
 
                 @Override
@@ -95,7 +96,7 @@ public class CryptoCompareClient {
 
     public void disconnect() {
         if (mWebSocket != null) {
-            mWebSocket.cancel();
+            mWebSocket.close(1000, "disconnect()");
         }
     }
 }
