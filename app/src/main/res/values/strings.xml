@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">CryptoTracker</string>
+    <string name="app_name">Crypto Tracker</string>
     <string name="btc_usd_title">BTC / USD</string>
     <string name="time_label">TIME</string>
     <string name="market_label">MARKET</string>
